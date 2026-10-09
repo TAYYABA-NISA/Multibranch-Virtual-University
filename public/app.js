@@ -71,7 +71,7 @@ function adminFrame(active, inner) {
   const link = (id, label, fn) => `<a class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''} href="#" onclick="event.preventDefault(); ${fn}()">${label}</a>`;
   return `<div class="admin"><aside class="side"><div class="side-head"><div class="brand"><span class="brand-mark" aria-hidden="true">E</span> ExamSlot <small>Admin</small></div>
       <button class="b o s nav-toggle" type="button" aria-expanded="false" aria-controls="admin-nav" onclick="toggleAdminNav(this)">Menu</button></div>
-    <nav id="admin-nav" class="nav" aria-label="Admin navigation">${link('branches', 'Branches', 'adminBranches')}${link('courses', 'Courses', 'adminCourses')}${link('students', 'Students', 'adminStudents')}${link('slots', 'Exam slots', 'adminSlots')}${link('requests', 'Change requests', 'adminRequests')}</nav>
+    <nav id="admin-nav" class="nav" aria-label="Admin navigation">${link('branches', 'Branches', 'adminBranches')}${link('students', 'Students', 'adminStudents')}${link('requests', 'Change requests', 'adminRequests')}</nav>
     <button class="b o s" type="button" onclick="logout()">Sign out</button></aside><main class="main">${inner}</main></div>`;
 }
 function toggleAdminNav(button) {
