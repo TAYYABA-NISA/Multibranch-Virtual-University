@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: examslot-backend
+    restart: always
+    environment:
+      PORT: ${PORT}
+      NODE_ENV: ${NODE_ENV}
+      DB_FILE: ${DB_FILE}
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - sqlite_data:/app/data
+
+  frontend:
+    image: nginx:alpine
+    container_name: examslot-frontend
+    restart: always
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+
+volumes:
+  sqlite_data:
