@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ExamSlot</title>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login screen -->
+  <section id="login-page" class="login">
+    <div class="login-left">
+      <div class="brand">ExamSlot</div>
+      <div>
+        <h1>Design your own exam date sheet.</h1>
+        <p>Pick your branch once, choose a date and time for every course, then print your date sheet.</p>
+      </div>
+      <small>Virtual University exam portal</small>
+    </div>
+    <div class="login-right">
+      <form id="login-form" class="login-form">
+        <h2>Sign in</h2>
+        <p class="k">Use the email your university has on file.</p>
+        <label>Email<input id="email" type="email" required></label>
+        <label>Password<input id="password" type="password" required></label>
+        <p id="login-error" class="error"></p>
+        <a class="k" onclick="forgot()">Forgot password?</a>
+        <button class="b" type="submit">Sign in</button>
+        <p class="k">Demo:
+          <a onclick="demo('admin@examslot.test','admin123')">Admin</a> |
+          <a onclick="demo('ayesha.khan@student.edu','student123')">Student (5 courses)</a> |
+          <a onclick="demo('bilal.khan@student.edu','student123')">Student (incomplete)</a>
+        </p>
+        <p class="k note">No sign-up here. Accounts are created by the admin.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- Everything after login is drawn into this box by app.js -->
+  <div id="page" hidden></div>
+
+  <script src="mock.js"></script>
+  <script src="api.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
