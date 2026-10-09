@@ -1,8 +1,6 @@
 // A fake backend inside the browser. It enforces the same rules the real one must:
 // branch once, 4 to 6 courses, one slot per course, no clashes, save once, one-time unlock.
 
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-
 const db = {
   branches: [
     { id: 1, name: 'Lahore Campus', code: 'LHR', city: 'Lahore', address: '12 Canal Road' },
@@ -16,10 +14,11 @@ const db = {
   ].map(([id, code, title, credits]) => ({ id, code, title, credits })),
   slots: [], requests: [],
 };
-// Two slots per course. Several courses share a date and time on purpose, so clashes can happen.
+// Fixed dates are unique per course so any choice of one of its slots is conflict-free.
 db.courses.forEach(c => {
-  db.slots.push({ id: c.id * 10 + 1, course_id: c.id, date: day(10 + (c.id % 3)), start: '09:00', end: '11:00' });
-  db.slots.push({ id: c.id * 10 + 2, course_id: c.id, date: day(14 + (c.id % 3)), start: '14:00', end: '16:00' });
+  const index = c.id - 1;
+  db.slots.push({ id: c.id * 10 + 1, course_id: c.id, date: `2027-01-${String(index + 4).padStart(2, '0')}`, start: '09:00', end: '11:00' });
+  db.slots.push({ id: c.id * 10 + 2, course_id: c.id, date: `2027-01-${String(index + 20).padStart(2, '0')}`, start: '14:00', end: '16:00' });
 });
 
 const person = (id, name, reg, program, semester, courses, gender) => ({
@@ -106,7 +105,7 @@ async function mockServer(path, body, token) {
     if (p === '/api/student/requests') {
       if (!['branch', 'sheet'].includes(body.type) || !String(body.reason || '').trim()) return err(400, 'Choose a type and write a reason');
       if (db.requests.some(r => r.student_id === me.id && r.type === body.type && r.status === 'pending')) return err(409, 'You already have a pending request of this type');
-      db.requests.push({ id: db.requests.length + 1, student_id: me.id, type: body.type, reason: body.reason.trim(), status: 'pending', remark: '', raised: day(0) });
+      db.requests.push({ id: db.requests.length + 1, student_id: me.id, type: body.type, reason: body.reason.trim(), status: 'pending', remark: '', raised: '2026-10-09' });
       return out(201, { ok: true });
     }
   }
@@ -127,18 +126,19 @@ async function mockServer(path, body, token) {
   if (m) {
     const s = db.students.find(s => s.id === Number(m[1]));
     return s ? out(200, { student: { id: s.id, name: s.name, reg: s.academic.reg, program: s.academic.program, semester: s.academic.semester },
-      assigned: s.courses.map(courseOf), available: db.courses.filter(c => !s.courses.includes(c.id)), locked: !!s.sheet }) : err(404, 'Student not found');
+      assigned: s.courses.map(courseOf), available: db.courses.filter(c => !s.courses.includes(c.id)), locked: !!s.sheet && !s.unlock.sheet }) : err(404, 'Student not found');
   }
   m = p.match(/^\/api\/admin\/students\/(\d+)\/(assign|unassign)$/);
   if (m) {
     const s = db.students.find(s => s.id === Number(m[1]));
     if (!s) return err(404, 'Student not found');
-    if (s.sheet) return err(409, 'This student has saved a date sheet. Approve a change request first.');
+    if (s.sheet && !s.unlock.sheet) return err(409, 'This student has saved a date sheet. Approve a change request first.');
     if (m[2] === 'assign') {
       if (s.courses.includes(body.course_id)) return err(409, 'Course already assigned to this student');
       if (s.courses.length >= 6) return err(400, 'A student can have at most 6 courses');
       s.courses.push(body.course_id);
     } else s.courses = s.courses.filter(id => id !== body.course_id);
+    if (s.unlock.sheet) s.unlock.sheet = false;
     return out(200, { ok: true });
   }
   if (p === '/api/admin/requests') {

@@ -11,4 +11,3 @@ export const validate = (schema) => (req, res, next) => {
 
 // True when SQLite refused a duplicate (unique) value.
 export const isDuplicate = (err) => /UNIQUE constraint failed/.test(err?.message || '');
-
