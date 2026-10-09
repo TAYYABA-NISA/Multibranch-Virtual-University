@@ -4,4 +4,4 @@ node_modules
 *.db
 *.db-*
 !.env.example
-converage/
+coverage/

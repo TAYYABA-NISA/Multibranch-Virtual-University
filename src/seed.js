@@ -23,35 +23,44 @@ const students = [
   ['Sara Malik', 'BC210910', 'BS Computer Science', 5, 'Female', [7, 1, 2, 3]],
 ];
 
+function fixedExamSlotsForCourse(courseIndex) {
+  return [
+    { date: `2027-01-${String(courseIndex + 4).padStart(2, '0')}`, start_time: '09:00', end_time: '11:00' },
+    { date: `2027-01-${String(courseIndex + 14).padStart(2, '0')}`, start_time: '11:30', end_time: '13:30' },
+    { date: `2027-01-${String(courseIndex + 24).padStart(2, '0')}`, start_time: '14:00', end_time: '16:00' },
+  ];
+}
+
 function migrateDemoSlots() {
   const courseIds = courses.map(([code]) => db.prepare('SELECT id FROM courses WHERE code = ?').get(code)?.id);
   if (courseIds.some((id) => !id)) return;
   const demoSlots = courseIds.flatMap((courseId) => db.prepare('SELECT * FROM exam_slots WHERE course_id = ?').all(courseId));
-  if (demoSlots.length !== courses.length * 2
-    || courseIds.some((courseId) => demoSlots.filter((slot) => slot.course_id === courseId).length !== 2)
-    || demoSlots.some((slot) => ![['09:00', '11:00'], ['14:00', '16:00']].some(([start, end]) => slot.start_time === start && slot.end_time === end))
+  const legacyShape = demoSlots.length === courses.length * 2
+    || demoSlots.length === courses.length * 3;
+  if (!legacyShape
     || demoSlots.some((slot) => db.prepare('SELECT 1 FROM selections WHERE slot_id = ?').get(slot.id))) return;
 
-  const targetSlots = [];
-  courseIds.forEach((courseId, i) => {
-    const slots = demoSlots.filter((slot) => slot.course_id === courseId);
-    const morning = slots.find((slot) => slot.start_time === '09:00');
-    const afternoon = slots.find((slot) => slot.start_time === '14:00');
-    targetSlots.push({ id: morning.id, course_id: courseId, date: `2027-01-${String(i + 4).padStart(2, '0')}`, start_time: '09:00', end_time: '11:00' });
-    targetSlots.push({ id: afternoon.id, course_id: courseId, date: `2027-01-${String(i + 20).padStart(2, '0')}`, start_time: '14:00', end_time: '16:00' });
-  });
+  const expected = courseIds.flatMap((courseId, i) => fixedExamSlotsForCourse(i).map((slot) => ({
+    course_id: courseId,
+    date: slot.date,
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+  })));
 
   const demoIds = new Set(demoSlots.map((slot) => slot.id));
-  const others = db.prepare('SELECT * FROM exam_slots WHERE date IN (' + targetSlots.map(() => '?').join(',') + ')')
-    .all(...targetSlots.map((slot) => slot.date)).filter((slot) => !demoIds.has(slot.id));
-  const conflicts = targetSlots.some((target) => others.some((other) => (
+  const others = db.prepare('SELECT * FROM exam_slots WHERE date IN (' + expected.map(() => '?').join(',') + ')')
+    .all(...expected.map((slot) => slot.date)).filter((slot) => !demoIds.has(slot.id));
+  const conflicts = expected.some((target) => others.some((other) => (
     target.date === other.date && target.start_time < (other.end_time || '23:59') && other.start_time < target.end_time
   )));
   if (conflicts) return;
 
   db.transaction(() => {
-    const update = db.prepare('UPDATE exam_slots SET date = ? WHERE id = ?');
-    for (const slot of targetSlots) update.run(slot.date, slot.id);
+    for (const courseId of courseIds) db.prepare('DELETE FROM exam_slots WHERE course_id = ?').run(courseId);
+    for (const slot of expected) {
+      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)')
+        .run(slot.course_id, slot.date, slot.start_time, slot.end_time);
+    }
   })();
 }
 
@@ -70,9 +79,10 @@ export function seed() {
     // Fixed dates are unique per course so any choice of one of its slots is conflict-free.
     courses.forEach((_, i) => {
       const id = i + 1;
-      const day = String(i + 4).padStart(2, '0');
-      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, `2027-01-${day}`, '09:00', '11:00');
-      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, `2027-01-${String(i + 20).padStart(2, '0')}`, '14:00', '16:00');
+      for (const slot of fixedExamSlotsForCourse(i)) {
+        db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)')
+          .run(id, slot.date, slot.start_time, slot.end_time);
+      }
     });
 
     students.forEach(([name, reg, program, semester, gender, assigned], i) => {

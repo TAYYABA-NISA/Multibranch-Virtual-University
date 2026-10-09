@@ -97,14 +97,15 @@ check('delete unused exam slot', (await call(`/api/admin/exam-slots/${slotId}`, 
 check('delete unused course', (await call(`/api/admin/courses/${courseId}`, { token: admin, method: 'DELETE' })).status === 200);
 
 const seededSlots = db.prepare('SELECT date, start_time, end_time FROM exam_slots ORDER BY id').all();
-check('seeded exam dates are fixed and no two seeded slots overlap', seededSlots.length === 16
+check('seeded exam dates are fixed and no two seeded slots overlap', seededSlots.length === 24
   && seededSlots.every((slot) => slot.date.startsWith('2027-01-'))
   && seededSlots.every((a, i) => seededSlots.slice(i + 1).every((b) => a.date !== b.date
     || a.start_time >= b.end_time || b.start_time >= a.end_time)));
 db.prepare("UPDATE exam_slots SET date = '2026-12-01'").run();
 seed();
 const migratedSlots = db.prepare('SELECT date, start_time, end_time FROM exam_slots ORDER BY id').all();
-check('existing unselected demo slots migrate to fixed non-overlapping dates', migratedSlots.every((slot) => slot.date.startsWith('2027-01-'))
+check('existing unselected demo slots migrate to fixed non-overlapping dates', migratedSlots.length === 24
+  && migratedSlots.every((slot) => slot.date.startsWith('2027-01-'))
   && migratedSlots.every((a, i) => migratedSlots.slice(i + 1).every((b) => a.date !== b.date
     || a.start_time >= b.end_time || b.start_time >= a.end_time)));
 
