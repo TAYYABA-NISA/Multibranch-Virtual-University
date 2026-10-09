@@ -71,7 +71,7 @@ function adminFrame(active, inner) {
   const link = (id, label, fn) => `<a class="${active === id ? 'on' : ''}" ${active === id ? 'aria-current="page"' : ''} href="#" onclick="event.preventDefault(); ${fn}()">${label}</a>`;
   return `<div class="admin"><aside class="side"><div class="side-head"><div class="brand"><span class="brand-mark" aria-hidden="true">E</span> ExamSlot <small>Admin</small></div>
       <button class="b o s nav-toggle" type="button" aria-expanded="false" aria-controls="admin-nav" onclick="toggleAdminNav(this)">Menu</button></div>
-    <nav id="admin-nav" class="nav" aria-label="Admin navigation">${link('students', 'Students', 'adminStudents')}${link('requests', 'Change requests', 'adminRequests')}</nav>
+    <nav id="admin-nav" class="nav" aria-label="Admin navigation">${link('branches', 'Branches', 'adminBranches')}${link('courses', 'Courses', 'adminCourses')}${link('students', 'Students', 'adminStudents')}${link('slots', 'Exam slots', 'adminSlots')}${link('requests', 'Change requests', 'adminRequests')}</nav>
     <button class="b o s" type="button" onclick="logout()">Sign out</button></aside><main class="main">${inner}</main></div>`;
 }
 function toggleAdminNav(button) {
@@ -87,9 +87,172 @@ function studentFrame(step, inner) {
 }
 
 // ================= ADMIN =================
+function pageControls(result, stateName, loaderName) {
+  const state = stateName === 'branchState' ? branchState : courseState;
+  const first = result.total ? (result.page - 1) * result.size + 1 : 0;
+  const last = Math.min(result.page * result.size, result.total);
+  return `<div class="row k"><span>Showing ${first}–${last} of ${result.total}</span>
+    <span><button class="b o s" ${result.page <= 1 ? 'disabled' : ''} onclick="${stateName}.page--; ${loaderName}()">Previous</button>
+      Page ${result.page} of ${result.pages}
+      <button class="b o s" ${result.page >= result.pages ? 'disabled' : ''} onclick="${stateName}.page++; ${loaderName}()">Next</button></span></div>`;
+}
+
+let branchState = { search: '', page: 1, size: 10 };
+const adminBranches = safe(async (error = '') => {
+  const result = await api('/api/admin/branches?' + new URLSearchParams(branchState));
+  branchState.page = result.page;
+  const rows = result.items.map((b) => `<tr>
+    <td data-label="Branch"><b>${esc(b.name)}</b><div class="k">${esc(b.code)}</div></td>
+    <td data-label="City">${esc(b.city)}</td><td data-label="Contact">${esc(b.phone || '—')}</td>
+    <td data-label="Students">${b.student_count}</td><td data-label="Status"><span class="t ${b.status === 'active' ? 'g' : 'r'}">${b.status}</span></td>
+    <td data-label="Actions"><div class="table-actions"><button class="b o s" onclick="editBranch(${b.id})">Edit</button>
+      <button class="b o s danger-action" onclick="deleteBranch(${b.id})">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="6">No branches found.</td></tr>';
+  show(adminFrame('branches', `<div class="row"><div><h1>Branches</h1><p class="k">Manage exam locations. Branches selected by students cannot be deleted.</p></div><button class="b" onclick="editBranch()">Add branch</button></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <input type="search" aria-label="Search branches" placeholder="Search name, code, or city" value="${esc(branchState.search)}" oninput="clearTimeout(timer); timer=setTimeout(()=>{branchState.search=this.value;branchState.page=1;adminBranches()},300)">
+    <div class="tw"><table><thead><tr><th>Branch</th><th>City</th><th>Contact</th><th>Students</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${pageControls(result, 'branchState', 'adminBranches')}`));
+});
+const branchForm = safe(async (id, error = '') => {
+  const b = id ? await api(`/api/admin/branches/${id}`) : { name: '', code: '', city: '', address: '', phone: '', status: 'active' };
+  show(adminFrame('branches', `<div><a href="#" onclick="event.preventDefault(); adminBranches()">← Back to branches</a><h1>${id ? 'Edit branch' : 'Add branch'}</h1></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <form class="c stack" onsubmit="saveBranchAdmin(event, ${id || 'null'})">
+      <div class="form-grid">
+        <label>Branch name *<input name="name" required minlength="2" maxlength="80" value="${esc(b.name)}"></label>
+        <label>Branch code *<input name="code" required minlength="2" maxlength="10" value="${esc(b.code)}"></label>
+        <label>City *<input name="city" required value="${esc(b.city)}"></label>
+        <label>Contact number<input name="phone" value="${esc(b.phone || '')}"></label>
+        <label class="span-all">Address *<input name="address" required value="${esc(b.address)}"></label>
+        <label>Status<select name="status"><option value="active" ${b.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${b.status === 'inactive' ? 'selected' : ''}>Inactive</option></select></label>
+      </div><div class="row"><button type="button" class="b o" onclick="adminBranches()">Cancel</button><button class="b">${id ? 'Save changes' : 'Create branch'}</button></div>
+    </form>`));
+});
+function editBranch(id) { branchForm(id); }
+async function saveBranchAdmin(event, id) {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(event.currentTarget));
+  try {
+    await api(id ? `/api/admin/branches/${id}` : '/api/admin/branches', body, id ? 'PUT' : 'POST');
+    toast(id ? 'Branch updated.' : 'Branch created.');
+    adminBranches();
+  } catch (err) { branchForm(id, err.message); }
+}
+const deleteBranch = safe(async (id) => {
+  if (!window.confirm('Delete this branch? If students have selected it, deletion will be blocked; mark it inactive instead.')) return;
+  try {
+    await api(`/api/admin/branches/${id}`, null, 'DELETE');
+    toast('Branch deleted.');
+    adminBranches();
+  } catch (err) { adminBranches(err.message); }
+});
+
+let courseState = { search: '', page: 1, size: 10 };
+const adminCourses = safe(async (error = '') => {
+  const result = await api('/api/admin/courses?' + new URLSearchParams(courseState));
+  courseState.page = result.page;
+  const rows = result.items.map((c) => `<tr>
+    <td data-label="Code"><b>${esc(c.code)}</b></td><td data-label="Course">${esc(c.title)}</td>
+    <td data-label="Credits">${c.credit_hours}</td><td data-label="Department">${esc(c.department || '—')}</td>
+    <td data-label="Usage">${c.student_count} student(s), ${c.slot_count} slot(s)</td>
+    <td data-label="Status"><span class="t ${c.status === 'active' ? 'g' : 'r'}">${c.status}</span></td>
+    <td data-label="Actions"><div class="table-actions"><button class="b o s" onclick="editCourse(${c.id})">Edit</button>
+      <button class="b o s danger-action" onclick="deleteCourse(${c.id})">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="7">No courses found.</td></tr>';
+  show(adminFrame('courses', `<div class="row"><div><h1>Courses</h1><p class="k">Manage course details and availability.</p></div><button class="b" onclick="editCourse()">Add course</button></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <input type="search" aria-label="Search courses" placeholder="Search code, title, or department" value="${esc(courseState.search)}" oninput="clearTimeout(timer); timer=setTimeout(()=>{courseState.search=this.value;courseState.page=1;adminCourses()},300)">
+    <div class="tw"><table><thead><tr><th>Code</th><th>Course</th><th>Credits</th><th>Department</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${pageControls(result, 'courseState', 'adminCourses')}`));
+});
+const courseForm = safe(async (id, error = '') => {
+  const c = id ? await api(`/api/admin/courses/${id}`) : { code: '', title: '', credit_hours: 3, department: '', status: 'active' };
+  show(adminFrame('courses', `<div><a href="#" onclick="event.preventDefault(); adminCourses()">← Back to courses</a><h1>${id ? 'Edit course' : 'Add course'}</h1></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <form class="c stack" onsubmit="saveCourse(event, ${id || 'null'})"><div class="form-grid">
+      <label>Course code *<input name="code" required minlength="2" maxlength="20" value="${esc(c.code)}"></label>
+      <label>Title *<input name="title" required maxlength="120" value="${esc(c.title)}"></label>
+      <label>Credit hours *<input name="credit_hours" type="number" min="1" max="6" step="1" required value="${c.credit_hours}"></label>
+      <label>Department<input name="department" maxlength="80" value="${esc(c.department || '')}"></label>
+      <label>Status<select name="status"><option value="active" ${c.status === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${c.status === 'inactive' ? 'selected' : ''}>Inactive</option></select></label>
+    </div><div class="row"><button type="button" class="b o" onclick="adminCourses()">Cancel</button><button class="b">${id ? 'Save changes' : 'Create course'}</button></div></form>`));
+});
+function editCourse(id) { courseForm(id); }
+async function saveCourse(event, id) {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(event.currentTarget));
+  body.credit_hours = Number(body.credit_hours);
+  try {
+    await api(id ? `/api/admin/courses/${id}` : '/api/admin/courses', body, id ? 'PUT' : 'POST');
+    toast(id ? 'Course updated.' : 'Course created.');
+    adminCourses();
+  } catch (err) { courseForm(id, err.message); }
+}
+const deleteCourse = safe(async (id) => {
+  if (!window.confirm('Delete this course? Courses with student assignments or exam slots must be marked inactive instead.')) return;
+  try {
+    await api(`/api/admin/courses/${id}`, null, 'DELETE');
+    toast('Course deleted.');
+    adminCourses();
+  } catch (err) { adminCourses(err.message); }
+});
+
+let slotState = { search: '', page: 1, size: 10 };
+const adminSlots = safe(async (error = '') => {
+  const result = await api('/api/admin/exam-slots?' + new URLSearchParams(slotState));
+  slotState.page = result.page;
+  const rows = result.items.map((slot) => `<tr>
+    <td data-label="Course"><b>${esc(slot.code)}</b><div class="k">${esc(slot.title)}</div></td>
+    <td data-label="Date">${dayLong(slot.date)}</td><td data-label="Time">${range({ start: slot.start_time, end: slot.end_time })}</td>
+    <td data-label="Selected"><span class="t ${slot.selected_count ? 'a' : 'g'}">${slot.selected_count} student(s)</span></td>
+    <td data-label="Actions"><div class="table-actions"><button class="b o s" ${slot.selected_count ? 'disabled title="Slot has already been selected"' : ''} onclick="editSlot(${slot.id})">Edit</button>
+      <button class="b o s danger-action" ${slot.selected_count ? 'disabled title="Slot has already been selected"' : ''} onclick="deleteSlot(${slot.id})">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="5">No exam slots found.</td></tr>';
+  show(adminFrame('slots', `<div class="row"><div><h1>Exam slots</h1><p class="k">Slots cannot overlap another course’s slot. Slots already selected by students are protected.</p></div><button class="b" onclick="editSlot()">Add exam slot</button></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <input type="search" aria-label="Search exam slots" placeholder="Search by course code or title" value="${esc(slotState.search)}" oninput="clearTimeout(timer); timer=setTimeout(()=>{slotState.search=this.value;slotState.page=1;adminSlots()},300)">
+    <div class="tw"><table><thead><tr><th>Course</th><th>Date</th><th>Time</th><th>Selected</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row k"><span>Showing ${result.total ? (result.page - 1) * result.size + 1 : 0}–${Math.min(result.page * result.size, result.total)} of ${result.total}</span>
+      <span><button class="b o s" ${result.page <= 1 ? 'disabled' : ''} onclick="slotState.page--; adminSlots()">Previous</button> Page ${result.page} of ${result.pages}
+      <button class="b o s" ${result.page >= result.pages ? 'disabled' : ''} onclick="slotState.page++; adminSlots()">Next</button></span></div>`));
+});
+const slotForm = safe(async (id, error = '') => {
+  const [slot, courseResult] = await Promise.all([
+    id ? api(`/api/admin/exam-slots/${id}`) : Promise.resolve({ course_id: '', date: '', start_time: '09:00', end_time: '11:00' }),
+    api('/api/admin/courses?size=100&status=active'),
+  ]);
+  const courses = courseResult.items || [];
+  show(adminFrame('slots', `<div><a href="#" onclick="event.preventDefault(); adminSlots()">← Back to exam slots</a><h1>${id ? 'Edit exam slot' : 'Add exam slot'}</h1></div>
+    <p class="k">Dates and times must not overlap any other course’s exam slot.</p>${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <form class="c stack" onsubmit="saveSlot(event, ${id || 'null'})"><div class="form-grid">
+      <label>Course *<select name="course_id" required><option value="">Choose course</option>${courses.map(c => `<option value="${c.id}" ${Number(slot.course_id) === c.id ? 'selected' : ''}>${esc(c.code)} — ${esc(c.title)}</option>`).join('')}</select></label>
+      <label>Exam date *<input name="date" type="date" required value="${esc(slot.date)}"></label>
+      <label>Start time *<input name="start_time" type="time" required value="${esc(slot.start_time)}"></label>
+      <label>End time *<input name="end_time" type="time" required value="${esc(slot.end_time)}"></label>
+    </div><div class="row"><button type="button" class="b o" onclick="adminSlots()">Cancel</button><button class="b">${id ? 'Save changes' : 'Create slot'}</button></div></form>`));
+});
+function editSlot(id) { slotForm(id); }
+async function saveSlot(event, id) {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(event.currentTarget));
+  body.course_id = Number(body.course_id);
+  try {
+    await api(id ? `/api/admin/exam-slots/${id}` : '/api/admin/exam-slots', body, id ? 'PUT' : 'POST');
+    toast(id ? 'Exam slot updated.' : 'Exam slot created.');
+    adminSlots();
+  } catch (err) { slotForm(id, err.message); }
+}
+const deleteSlot = safe(async (id) => {
+  if (!window.confirm('Delete this exam slot?')) return;
+  try {
+    await api(`/api/admin/exam-slots/${id}`, null, 'DELETE');
+    toast('Exam slot deleted.');
+    adminSlots();
+  } catch (err) { adminSlots(err.message); }
+});
+
 const adminStudents = safe(async () => {
   show(adminFrame('students', `
-    <div class="row"><div><h1>Students</h1><p class="k">Search and pages are handled by the server.</p></div></div>
+    <div class="row"><div><h1>Students</h1><p class="k">Create and manage student accounts, records, and course assignments.</p></div>
+      <button class="b" onclick="editStudent()">Add student</button></div>
     <input id="search" type="search" aria-label="Search students by name, email or registration number" placeholder="Search name, email or registration number" value="${esc(paging.search)}"
       oninput="clearTimeout(timer); timer = setTimeout(() => { paging.search = this.value; paging.page = 1; loadStudents(); }, 300)">
     <div id="tbl"></div>`));
@@ -110,13 +273,75 @@ const loadStudents = safe(async () => {
       <td data-label="Student"><b>${esc(s.name)}</b><div class="k">${esc(s.reg)} | ${esc(s.email)}</div></td><td data-label="Program">${esc(s.program)}, Sem ${s.semester}</td>
       <td data-label="Courses"><span class="t ${s.course_count < 4 ? 'a' : 'g'}">${s.course_count < 4 ? 'Incomplete: ' + s.course_count : s.course_count + ' of 6'}</span></td>
       <td data-label="Branch">${esc(s.branch)}</td><td data-label="Date sheet"><span class="t ${s.sheet === 'Saved' ? 'g' : ''}">${esc(s.sheet)}</span></td>
-      <td data-label="Actions"><a href="#" onclick="event.preventDefault(); adminAssign(${s.id})">Assign courses</a></td></tr>`).join('') ||
+      <td data-label="Actions"><div class="table-actions">
+        <button class="b o s" onclick="editStudent(${s.id})">Edit</button>
+        <button class="b o s" onclick="adminAssign(${s.id})">Courses</button>
+        <button class="b o s" onclick="sendSetupEmail(${s.id})">Setup email</button>
+        <button class="b o s danger-action" onclick="deleteStudent(${s.id})">Delete</button>
+      </div></td></tr>`).join('') ||
       '<tr><td colspan="6" class="k">No students match your search.</td></tr>') + `</tbody></table></div>
     <div class="row k"><span>Showing ${from} to ${to} of ${d.total}</span>
       <span><select onchange="paging.size = Number(this.value); paging.page = 1; loadStudents()">${[5, 10].map(n => `<option ${d.size === n ? 'selected' : ''} value="${n}">${n} per page</option>`).join('')}</select>
         <button class="b o s" ${d.page <= 1 ? 'disabled' : ''} onclick="paging.page--; loadStudents()">Previous</button>
         Page ${d.page} of ${d.pages}
         <button class="b o s" ${d.page >= d.pages ? 'disabled' : ''} onclick="paging.page++; loadStudents()">Next</button></span></div>`;
+});
+
+const studentGroups = [
+  ['Personal information', [
+    ['full_name', 'Full name', 'text', true], ['email', 'Email address', 'email', true], ['phone', 'Phone', 'tel'],
+    ['cnic', 'CNIC', 'text'], ['dob', 'Date of birth', 'date'], ['gender', 'Gender', 'select'],
+    ['address', 'Address', 'text'],
+  ]],
+  ['Parent or guardian', [
+    ['guardian_name', 'Guardian name', 'text'], ['guardian_cnic', 'Guardian CNIC', 'text'],
+    ['guardian_occupation', 'Occupation', 'text'], ['guardian_phone', 'Guardian phone', 'tel'],
+    ['emergency_contact', 'Emergency contact', 'tel'],
+  ]],
+  ['Academic information', [
+    ['reg_no', 'Registration number', 'text', true], ['program', 'Program', 'text', true],
+    ['semester', 'Semester', 'number', true], ['batch', 'Batch', 'text'],
+    ['prev_qualification', 'Previous qualification', 'text'], ['prev_institute', 'Previous institute', 'text'],
+    ['cgpa', 'CGPA (0–4)', 'number'],
+  ]],
+];
+function editStudent(id) { studentForm(id); }
+const studentForm = safe(async (id, error = '') => {
+  const s = id ? (await api(`/api/admin/students/${id}`)).student : {};
+  const field = ([name, label, type, required]) => {
+    const value = s[name] ?? '';
+    if (type === 'select') return `<label>${label}${required ? ' *' : ''}<select name="${name}"><option value="">Choose…</option>${['Female', 'Male', 'Other'].map((option) => `<option ${value === option ? 'selected' : ''}>${option}</option>`).join('')}</select></label>`;
+    return `<label>${label}${required ? ' *' : ''}<input name="${name}" type="${type}" ${type === 'number' ? `min="${name === 'semester' ? 1 : 0}" max="${name === 'semester' ? 20 : 4}" step="${name === 'semester' ? 1 : 0.01}"` : ''} value="${esc(value)}" ${required ? 'required' : ''}></label>`;
+  };
+  show(adminFrame('students', `<div><a href="#" onclick="event.preventDefault(); adminStudents()">← Back to students</a><h1>${id ? 'Edit student' : 'Create student'}</h1>
+    <p class="k">${id ? 'Update the student profile.' : 'A password setup link will be emailed to the student after creation.'}</p></div>
+    ${error ? `<div class="banner bad" role="alert">${esc(error)}</div>` : ''}
+    <form class="stack" onsubmit="saveStudent(event, ${id || 'null'})">
+      ${studentGroups.map(([title, fields]) => `<fieldset class="c form-section"><legend>${title}</legend><div class="form-grid">${fields.map(field).join('')}</div></fieldset>`).join('')}
+      <div class="row"><button type="button" class="b o" onclick="adminStudents()">Cancel</button><button type="submit" class="b">${id ? 'Save changes' : 'Create student'}</button></div>
+    </form>`));
+});
+async function saveStudent(event, id) {
+  event.preventDefault();
+  const body = Object.fromEntries(new FormData(event.currentTarget));
+  body.semester = Number(body.semester);
+  body.cgpa = body.cgpa === '' ? null : Number(body.cgpa);
+  try {
+    await api(id ? `/api/admin/students/${id}` : '/api/admin/students', body, id ? 'PUT' : 'POST');
+    toast(id ? 'Student details updated.' : 'Student account created and setup email sent.');
+    paging.page = 1;
+    adminStudents();
+  } catch (err) { studentForm(id, err.message); }
+}
+const deleteStudent = safe(async (id) => {
+  if (!window.confirm('Permanently delete this student, their requests, and saved date sheet?')) return;
+  await api(`/api/admin/students/${id}`, null, 'DELETE');
+  toast('Student deleted.');
+  adminStudents();
+});
+const sendSetupEmail = safe(async (id) => {
+  await api(`/api/admin/students/${id}/setup-email`, {}, 'POST');
+  toast('Password setup email sent.');
 });
 
 const adminAssign = safe(async (id, message) => {

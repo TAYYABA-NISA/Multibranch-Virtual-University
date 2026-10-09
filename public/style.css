@@ -94,6 +94,12 @@ input, select, textarea {
 textarea { resize: vertical; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .c { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgb(15 23 42 / 3%); }
+.form-section { min-width: 0; margin: 0; }
+.form-section legend { padding: 0 8px; color: var(--ink); font-size: 16px; font-weight: 700; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.span-all { grid-column: 1 / -1; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.danger-action { color: var(--danger) !important; }
 .t { display: inline-flex; align-items: center; width: fit-content; padding: 4px 10px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 12px; font-weight: 600; text-transform: capitalize; }
 .t.g { background: var(--success-bg); color: var(--success); }
 .t.a { background: var(--warning-bg); color: var(--warning); }
@@ -232,6 +238,8 @@ tbody tr:hover { background: color-mix(in srgb, var(--surface-muted) 55%, var(--
   .cr.bad { margin: 0 -14px; padding: 12px 14px; }
   .cr select { width: 100%; }
   .c { padding: 16px; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .span-all { grid-column: auto; }
   .cr.bad { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
 }
 

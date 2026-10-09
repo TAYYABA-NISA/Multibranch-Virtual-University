@@ -73,6 +73,54 @@ check('made-up token rejected', (await call('/api/auth/set-password', { method: 
 const uid = db.prepare("INSERT INTO users (email, role) VALUES ('new@student.edu', 'student')").run().lastInsertRowid;
 check('account with no password cannot log in', (await login('new@student.edu', '')).status === 401 && !!uid);
 
+// ---- course and exam slot CRUD ----
+const courseBody = { code: 'TST-901', title: 'CRUD Test Course', credit_hours: 3, department: 'Testing', status: 'active' };
+const courseCreated = await call('/api/admin/courses', { token: admin, method: 'POST', body: courseBody });
+check('create course', courseCreated.status === 201 && courseCreated.data.code === 'TST-901');
+check('duplicate course code rejected', (await call('/api/admin/courses', { token: admin, method: 'POST', body: courseBody })).status === 409);
+const courseId = courseCreated.data.id;
+check('update course', (await call(`/api/admin/courses/${courseId}`, { token: admin, method: 'PUT', body: { ...courseBody, title: 'Updated Test Course' } })).data.title === 'Updated Test Course');
+check('course with student assignments cannot be deleted', (await call('/api/admin/courses/1', { token: admin, method: 'DELETE' })).status === 409);
+
+const slotBody = { course_id: courseId, date: '2028-01-01', start_time: '09:00', end_time: '11:00' };
+const slotCreated = await call('/api/admin/exam-slots', { token: admin, method: 'POST', body: slotBody });
+check('create exam slot', slotCreated.status === 201 && slotCreated.data.date === slotBody.date);
+const slotId = slotCreated.data.id;
+check('duplicate overlapping slot rejected', (await call('/api/admin/exam-slots', { token: admin, method: 'POST', body: { ...slotBody, course_id: 1, start_time: '10:00', end_time: '12:00' } })).status === 409);
+check('invalid time range rejected', (await call('/api/admin/exam-slots', { token: admin, method: 'POST', body: { ...slotBody, start_time: '12:00', end_time: '10:00' } })).status === 400);
+check('get exam slot for editing', (await call(`/api/admin/exam-slots/${slotId}`, { token: admin })).data.id === slotId);
+db.prepare('INSERT INTO selections (student_id, course_id, slot_id) VALUES (1, ?, ?)').run(courseId, slotId);
+check('selected slot cannot be edited or deleted', (await call(`/api/admin/exam-slots/${slotId}`, { token: admin, method: 'PUT', body: { ...slotBody, start_time: '13:00', end_time: '15:00' } })).status === 409
+  && (await call(`/api/admin/exam-slots/${slotId}`, { token: admin, method: 'DELETE' })).status === 409);
+db.prepare('DELETE FROM selections WHERE student_id = 1 AND course_id = ?').run(courseId);
+check('delete unused exam slot', (await call(`/api/admin/exam-slots/${slotId}`, { token: admin, method: 'DELETE' })).status === 200);
+check('delete unused course', (await call(`/api/admin/courses/${courseId}`, { token: admin, method: 'DELETE' })).status === 200);
+
+const seededSlots = db.prepare('SELECT date, start_time, end_time FROM exam_slots ORDER BY id').all();
+check('seeded exam dates are fixed and no two seeded slots overlap', seededSlots.length === 16
+  && seededSlots.every((slot) => slot.date.startsWith('2027-01-'))
+  && seededSlots.every((a, i) => seededSlots.slice(i + 1).every((b) => a.date !== b.date
+    || a.start_time >= b.end_time || b.start_time >= a.end_time)));
+db.prepare("UPDATE exam_slots SET date = '2026-12-01'").run();
+seed();
+const migratedSlots = db.prepare('SELECT date, start_time, end_time FROM exam_slots ORDER BY id').all();
+check('existing unselected demo slots migrate to fixed non-overlapping dates', migratedSlots.every((slot) => slot.date.startsWith('2027-01-'))
+  && migratedSlots.every((a, i) => migratedSlots.slice(i + 1).every((b) => a.date !== b.date
+    || a.start_time >= b.end_time || b.start_time >= a.end_time)));
+
+// ---- student CRUD and setup email ----
+const studentBody = { full_name: 'CRUD Student', email: 'crud.student@student.edu', reg_no: 'CRUD-0001', program: 'BS Testing', semester: 2 };
+const studentCreated = await call('/api/admin/students', { token: admin, method: 'POST', body: studentBody });
+check('create student and send setup email', studentCreated.status === 201 && studentCreated.data.email === studentBody.email
+  && outbox.at(-1).to === studentBody.email);
+const createdStudentId = studentCreated.data.id;
+check('new student cannot log in before setting a password', (await login(studentBody.email, '')).status === 401);
+check('resend student setup email', (await call(`/api/admin/students/${createdStudentId}/setup-email`, { token: admin, method: 'POST', body: {} })).status === 200);
+check('update student profile', (await call(`/api/admin/students/${createdStudentId}`, { token: admin, method: 'PUT', body: { ...studentBody, full_name: 'Updated CRUD Student', phone: '555-0100' } })).status === 200
+  && db.prepare('SELECT full_name, phone FROM students WHERE id = ?').get(createdStudentId).full_name === 'Updated CRUD Student');
+check('delete student record and login', (await call(`/api/admin/students/${createdStudentId}`, { token: admin, method: 'DELETE' })).status === 200
+  && !db.prepare("SELECT 1 FROM users WHERE email = 'crud.student@student.edu'").get());
+
 server.close();
 console.log(failed ? `\n${failed} check(s) FAILED` : '\nAll checks passed');
 process.exit(failed ? 1 : 0);

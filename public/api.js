@@ -4,7 +4,7 @@
 const USE_MOCK = false;
 const API_URL = '';
 
-async function api(path, body) {
+async function api(path, body, method = body ? 'POST' : 'GET') {
   const token = localStorage.getItem('exam_token');
   let status, data;
   if (USE_MOCK) {
@@ -13,9 +13,9 @@ async function api(path, body) {
     let res;
     try {
       res = await fetch(API_URL + path, {
-        method: body ? 'POST' : 'GET',
+        method,
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
+        body: body === undefined || body === null ? undefined : JSON.stringify(body),
       });
     } catch {
       throw new Error('Cannot reach the server. Is the backend running?');

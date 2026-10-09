@@ -3,8 +3,6 @@ import { db } from './db.js';
 
 // Demo data required by the paper: 1 admin, 3 branches, 8 courses, 5 students, slots.
 // Admin: admin@examslot.test / admin123. Students: <email> / student123.
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-
 const branches = [
   ['Lahore Campus', 'LHR', 'Lahore', '12 Canal Road', '042 111 000 111'],
   ['Karachi Campus', 'KHI', 'Karachi', '45 University Avenue', '021 111 000 222'],
@@ -25,8 +23,43 @@ const students = [
   ['Sara Malik', 'BC210910', 'BS Computer Science', 5, 'Female', [7, 1, 2, 3]],
 ];
 
+function migrateDemoSlots() {
+  const courseIds = courses.map(([code]) => db.prepare('SELECT id FROM courses WHERE code = ?').get(code)?.id);
+  if (courseIds.some((id) => !id)) return;
+  const demoSlots = courseIds.flatMap((courseId) => db.prepare('SELECT * FROM exam_slots WHERE course_id = ?').all(courseId));
+  if (demoSlots.length !== courses.length * 2
+    || courseIds.some((courseId) => demoSlots.filter((slot) => slot.course_id === courseId).length !== 2)
+    || demoSlots.some((slot) => ![['09:00', '11:00'], ['14:00', '16:00']].some(([start, end]) => slot.start_time === start && slot.end_time === end))
+    || demoSlots.some((slot) => db.prepare('SELECT 1 FROM selections WHERE slot_id = ?').get(slot.id))) return;
+
+  const targetSlots = [];
+  courseIds.forEach((courseId, i) => {
+    const slots = demoSlots.filter((slot) => slot.course_id === courseId);
+    const morning = slots.find((slot) => slot.start_time === '09:00');
+    const afternoon = slots.find((slot) => slot.start_time === '14:00');
+    targetSlots.push({ id: morning.id, course_id: courseId, date: `2027-01-${String(i + 4).padStart(2, '0')}`, start_time: '09:00', end_time: '11:00' });
+    targetSlots.push({ id: afternoon.id, course_id: courseId, date: `2027-01-${String(i + 20).padStart(2, '0')}`, start_time: '14:00', end_time: '16:00' });
+  });
+
+  const demoIds = new Set(demoSlots.map((slot) => slot.id));
+  const others = db.prepare('SELECT * FROM exam_slots WHERE date IN (' + targetSlots.map(() => '?').join(',') + ')')
+    .all(...targetSlots.map((slot) => slot.date)).filter((slot) => !demoIds.has(slot.id));
+  const conflicts = targetSlots.some((target) => others.some((other) => (
+    target.date === other.date && target.start_time < (other.end_time || '23:59') && other.start_time < target.end_time
+  )));
+  if (conflicts) return;
+
+  db.transaction(() => {
+    const update = db.prepare('UPDATE exam_slots SET date = ? WHERE id = ?');
+    for (const slot of targetSlots) update.run(slot.date, slot.id);
+  })();
+}
+
 export function seed() {
-  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 0) return false;
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 0) {
+    migrateDemoSlots();
+    return false;
+  }
   const adminHash = bcrypt.hashSync('admin123', 10), studentHash = bcrypt.hashSync('student123', 10);
 
   db.transaction(() => {
@@ -34,11 +67,12 @@ export function seed() {
     for (const b of branches) db.prepare('INSERT INTO branches (name, code, city, address, phone) VALUES (?, ?, ?, ?, ?)').run(...b);
     for (const c of courses) db.prepare('INSERT INTO courses (code, title, credit_hours, department) VALUES (?, ?, ?, ?)').run(...c);
 
-    // Two slots per course. Several courses share a date and time on purpose, so clashes can be demonstrated.
+    // Fixed dates are unique per course so any choice of one of its slots is conflict-free.
     courses.forEach((_, i) => {
       const id = i + 1;
-      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, day(10 + (id % 3)), '09:00', '11:00');
-      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, day(14 + (id % 3)), '14:00', '16:00');
+      const day = String(i + 4).padStart(2, '0');
+      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, `2027-01-${day}`, '09:00', '11:00');
+      db.prepare('INSERT INTO exam_slots (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)').run(id, `2027-01-${String(i + 20).padStart(2, '0')}`, '14:00', '16:00');
     });
 
     students.forEach(([name, reg, program, semester, gender, assigned], i) => {

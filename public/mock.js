@@ -1,8 +1,6 @@
 // A fake backend inside the browser. It enforces the same rules the real one must:
 // branch once, 4 to 6 courses, one slot per course, no clashes, save once, one-time unlock.
 
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-
 const db = {
   branches: [
     { id: 1, name: 'Lahore Campus', code: 'LHR', city: 'Lahore', address: '12 Canal Road' },
@@ -16,10 +14,11 @@ const db = {
   ].map(([id, code, title, credits]) => ({ id, code, title, credits })),
   slots: [], requests: [],
 };
-// Two slots per course. Several courses share a date and time on purpose, so clashes can happen.
+// Fixed dates are unique per course so any choice of one of its slots is conflict-free.
 db.courses.forEach(c => {
-  db.slots.push({ id: c.id * 10 + 1, course_id: c.id, date: day(10 + (c.id % 3)), start: '09:00', end: '11:00' });
-  db.slots.push({ id: c.id * 10 + 2, course_id: c.id, date: day(14 + (c.id % 3)), start: '14:00', end: '16:00' });
+  const index = c.id - 1;
+  db.slots.push({ id: c.id * 10 + 1, course_id: c.id, date: `2027-01-${String(index + 4).padStart(2, '0')}`, start: '09:00', end: '11:00' });
+  db.slots.push({ id: c.id * 10 + 2, course_id: c.id, date: `2027-01-${String(index + 20).padStart(2, '0')}`, start: '14:00', end: '16:00' });
 });
 
 const person = (id, name, reg, program, semester, courses, gender) => ({
@@ -106,7 +105,7 @@ async function mockServer(path, body, token) {
     if (p === '/api/student/requests') {
       if (!['branch', 'sheet'].includes(body.type) || !String(body.reason || '').trim()) return err(400, 'Choose a type and write a reason');
       if (db.requests.some(r => r.student_id === me.id && r.type === body.type && r.status === 'pending')) return err(409, 'You already have a pending request of this type');
-      db.requests.push({ id: db.requests.length + 1, student_id: me.id, type: body.type, reason: body.reason.trim(), status: 'pending', remark: '', raised: day(0) });
+      db.requests.push({ id: db.requests.length + 1, student_id: me.id, type: body.type, reason: body.reason.trim(), status: 'pending', remark: '', raised: '2026-10-09' });
       return out(201, { ok: true });
     }
   }

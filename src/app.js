@@ -8,6 +8,8 @@ import branchRoutes from './routes/branches.js';
 import studentRoutes from './routes/student.js';
 import adminStudentRoutes from './routes/adminStudents.js';
 import adminRequestRoutes from './routes/adminRequests.js';
+import courseRoutes from './routes/courses.js';
+import examSlotRoutes from './routes/examSlots.js';
 import { requireAuth, requireRole } from './auth.js';
 
 const app = express();
@@ -22,7 +24,8 @@ app.use('/api/admin', requireAuth, requireRole('admin'));
 app.use('/api/admin/branches', branchRoutes);
 app.use('/api/admin/students', adminStudentRoutes);
 app.use('/api/admin/requests', adminRequestRoutes);
-// Still to add: courses CRUD, student create/edit/delete with the welcome email, exam slot CRUD
+app.use('/api/admin/courses', courseRoutes);
+app.use('/api/admin/exam-slots', examSlotRoutes);
 
 // Everything under /api/student is for a logged-in STUDENT only.
 app.use('/api/student', requireAuth, requireRole('student'), studentRoutes);
